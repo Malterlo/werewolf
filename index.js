@@ -217,6 +217,28 @@ function handle(ws, m) {
   if (!r) return;
   r.last = Date.now();
 
+  if (m.type === 'leave') {
+    if (who.role === 'gm') {
+      r.gmWs = null;
+      ws.ctx = null;
+      if (r.phase === 'lobby' || r.phase === 'over') {
+        r.sockets.forEach((s) => s.close(4002));
+        rooms.delete(r.code);
+      } else {
+        broadcast(r);
+      }
+    } else if (who.role === 'player') {
+      if (r.phase === 'lobby') {
+        r.players.delete(who.id);
+      }
+      r.sockets.delete(who.id);
+      ws.ctx = null;
+      broadcast(r);
+    }
+    try { ws.close(); } catch {}
+    return;
+  }
+
   if (who.role === 'player') {
     const p = r.players.get(who.id);
     if (!p) return;

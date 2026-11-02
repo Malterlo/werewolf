@@ -127,7 +127,9 @@ const L = {
     nightpanel: 'Night turns', wake: 'Wake', closeturn: 'Close turn', wakeline: '“{r}, open your eyes.”', deadholder: '(out)', nopick: 'no pick yet',
     majority: 'Majority: {n}', split: 'Split. You decide.', killhim: 'Kill {n}',
     kill: 'Kill (night)', lynch: 'Lynch', shot: 'Shot (by {r})', revive: 'Bring back', removeroom: 'Remove from room', close: 'Close',
-    changerole: 'Change role', confirm: 'Confirm', cancel: 'Cancel', q_kill: 'Kill {n}?', q_lynch: 'Lynch {n}?', q_shot: 'Shoot {n}?',
+    changerole: 'Change role', confirm: 'Confirm', cancel: 'Cancel', leave: 'Leave room', q_leave: 'Leave this room?',
+    leave_hint: 'You will leave and return to the home screen.', leave_gm_hint: 'Leaving in the lobby closes the room for all players.',
+    q_kill: 'Kill {n}?', q_lynch: 'Lynch {n}?', q_shot: 'Shoot {n}?',
     flip: 'Flip next card', revealall: 'Reveal all', progress: '{a}/{b} revealed', next: 'Next: {n}', killerslast: 'The {r} are revealed last.',
     w_good: 'The good side wins.', w_evil: 'The {r} win.', w_jester: 'The {r} wins.', w_draw: 'Nobody wins.',
     d_night: '{n} was killed in the night.', d_lynch: '{n} was lynched.', d_shot: '{n} was shot.', revived: '{n} is back in the game.',
@@ -156,7 +158,9 @@ const L = {
     nightpanel: 'វេនពេលយប់', wake: 'ដាស់', closeturn: 'បិទវេន', wakeline: '«{r} សូមបើកភ្នែក។»', deadholder: '(ចេញ)', nopick: 'មិនទាន់ជ្រើស',
     majority: 'សំឡេងភាគច្រើន៖ {n}', split: 'បែកគ្នា។ អ្នកសម្រេច។', killhim: 'សម្លាប់ {n}',
     kill: 'សម្លាប់ (យប់)', lynch: 'ប្រហារ', shot: 'បាញ់ (ដោយ {r})', revive: 'នាំត្រឡប់មកវិញ', removeroom: 'ដកចេញពីបន្ទប់', close: 'បិទ',
-    changerole: 'ប្តូរតួនាទី', confirm: 'បញ្ជាក់', cancel: 'បោះបង់', q_kill: 'សម្លាប់ {n} មែនទេ?', q_lynch: 'ប្រហារ {n} មែនទេ?', q_shot: 'បាញ់ {n} មែនទេ?',
+    changerole: 'ប្តូរតួនាទី', confirm: 'បញ្ជាក់', cancel: 'បោះបង់', leave: 'ចាកចេញពីបន្ទប់', q_leave: 'ចាកចេញពីបន្ទប់?',
+    leave_hint: 'អ្នកនឹងចាកចេញ ហើយត្រឡប់ទៅទំព័រដើម។', leave_gm_hint: 'ការចាកចេញក្នុងបន្ទប់រង់ចាំ នឹងបិទបន្ទប់សម្រាប់អ្នកលេងទាំងអស់។',
+    q_kill: 'សម្លាប់ {n} មែនទេ?', q_lynch: 'ប្រហារ {n} មែនទេ?', q_shot: 'បាញ់ {n} មែនទេ?',
     flip: 'បើកបៀបន្ទាប់', revealall: 'បើកទាំងអស់', progress: 'បានបើក {a}/{b}', next: 'បន្ទាប់៖ {n}', killerslast: '{r} នឹងត្រូវបើកចុងក្រោយ។',
     w_good: 'ភាគីល្អឈ្នះ។', w_evil: '{r} ឈ្នះ។', w_jester: '{r} ឈ្នះ។', w_draw: 'គ្មានអ្នកឈ្នះទេ។',
     d_night: '{n} ត្រូវបានសម្លាប់នៅពេលយប់។', d_lynch: '{n} ត្រូវបានប្រហារ។', d_shot: '{n} ត្រូវបានបាញ់។', revived: '{n} ត្រឡប់មកក្នុងហ្គេមវិញ។',
@@ -313,7 +317,7 @@ const langBtn = () => `<button class="btn lang" data-act="lang" aria-label="Lang
 function home() {
   const ses = getSession();
   if (ses) return `<div class="stack" style="padding-top:20vh"><h2>${esc(t('rejoin'))}</h2><p class="dim">${esc(t('room'))} ${esc(ses.code)}</p>
-    <button class="btn" data-act="forget">${esc(t('startover'))}</button></div>`;
+    <button class="btn danger" data-act="forget">${esc(t('leave'))}</button></div>`;
   return `<div class="stack" style="padding-top:6vh"><div class="row"><div class="grow"></div>${langBtn()}</div>
     <div><h1>Night Table</h1><p class="dim">${esc(tx(THEMES[pref].tag))}</p></div>
     <div class="stack">
@@ -349,9 +353,13 @@ function winnerBanner() {
 }
 
 function playerHead() {
-  return `<div class="row"><div class="grow"><h3>${esc(S.me.name)}</h3><span class="dim">${esc(t('room'))} ${esc(S.code)}</span></div>
-    <button class="btn" data-act="snd" aria-pressed="${snd}" aria-label="${esc(t('sound'))}">${snd ? '🔊' : '🔇'}</button>
-    <button class="btn" data-act="rules" ${S.inPlay.length ? '' : 'disabled'}>${esc(t('rules'))}</button>${langBtn()}</div>`;
+  return `<div class="row" style="flex-wrap:wrap;gap:8px"><div class="grow"><h3>${esc(S.me.name)}</h3><span class="dim">${esc(t('room'))} ${esc(S.code)}</span></div>
+    <div class="row" style="gap:6px">
+      <button class="btn" style="min-height:38px;padding:0 10px" data-act="snd" aria-pressed="${snd}" aria-label="${esc(t('sound'))}">${snd ? '🔊' : '🔇'}</button>
+      <button class="btn" style="min-height:38px;padding:0 10px" data-act="rules" ${S.inPlay.length ? '' : 'disabled'}>${esc(t('rules'))}</button>
+      <button class="btn danger" style="min-height:38px;padding:0 10px" data-act="leave">${esc(t('leave'))}</button>
+      ${langBtn()}
+    </div></div>`;
 }
 
 function nightView() {
@@ -403,9 +411,13 @@ function gmView() {
   const T = theme(), n = S.players.length, nAlive = S.players.filter((p) => p.alive).length;
   const label = S.phase === 'lobby' ? t('lobby') : S.phase === 'over' ? t('over') : S.phase === 'reveal' ? t('dealt')
     : t(S.phase === 'night' ? 'night_n' : 'day_n', { n: S.round });
-  const head = `<div class="row"><div class="grow"><span class="code" style="font-size:1.8rem">${esc(S.code)}</span>
+  const head = `<div class="row" style="flex-wrap:wrap;gap:8px"><div class="grow"><span class="code" style="font-size:1.8rem">${esc(S.code)}</span>
     <div class="dim">${esc(label)} · ${nAlive}/${n} ${esc(t('alive'))}</div></div>
-    <button class="btn" data-act="undo" ${S.canUndo ? '' : 'disabled'}>${esc(t('undo'))}</button>${langBtn()}</div>`;
+    <div class="row" style="gap:6px">
+      <button class="btn" style="min-height:38px;padding:0 10px" data-act="undo" ${S.canUndo ? '' : 'disabled'}>${esc(t('undo'))}</button>
+      <button class="btn danger" style="min-height:38px;padding:0 10px" data-act="leave">${esc(t('leave'))}</button>
+      ${langBtn()}
+    </div></div>`;
 
   if (S.phase === 'lobby') {
     const sum = Object.values(S.roles).reduce((a, b) => a + b, 0);
@@ -511,6 +523,20 @@ document.addEventListener('click', (e) => {
       if (!name || code.length !== 4) return flash(t('enter')); return send({ type: 'join', code, name }); }
     case 'create': { const key = $('#hkey').value; store.set('nt_key', key); return send({ type: 'create', theme: pref, key }); }
     case 'forget': setSession(null); if (ws) ws.close(); S = null; return render();
+    case 'leave': {
+      $('#confirm').innerHTML = `<h3>${esc(t('q_leave'))}</h3>
+        <p class="dim">${esc(S && S.you === 'gm' ? t('leave_gm_hint') : t('leave_hint'))}</p>
+        <div class="row" style="margin-top:16px"><button class="btn grow" data-act="cancel">${esc(t('cancel'))}</button>
+        <button class="btn danger grow" data-act="doit">${esc(t('leave'))}</button></div>`;
+      doIt = () => {
+        try { send({ type: 'leave' }); } catch {}
+        setSession(null);
+        if (ws) ws.close();
+        S = null;
+        render();
+      };
+      return $('#confirm').showModal();
+    }
     case 'lang': lang = lang === 'en' ? 'km' : 'en'; store.set('nt_lang', lang); return render();
     case 'snd': snd = !snd; store.set('nt_snd', snd ? '1' : '0'); if (snd) audio(); return render();
     case 'deal': return send({ type: 'deal' });

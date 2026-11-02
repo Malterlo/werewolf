@@ -77,5 +77,17 @@ assert.ok(lastKillerIdx >= 0);
 const again = client(); await again.open; again.send({ type: 'resume', code, token: ps[1].token }); await wait();
 assert.equal(again.state.me.id, ps[1].state.me.id);
 
-for (const c of [gm, bad, late, again, ...ps]) c.ws.close();
+// leave test
+const gm2 = client(); await gm2.open; gm2.send({ type: 'create', key: 'hunter2' }); await wait();
+const p1 = client(); await p1.open; p1.send({ type: 'join', code: gm2.state.code, name: 'P1' }); await wait();
+const p2 = client(); await p2.open; p2.send({ type: 'join', code: gm2.state.code, name: 'P2' }); await wait();
+assert.equal(gm2.state.players.length, 2);
+p2.send({ type: 'leave' }); await wait();
+assert.equal(gm2.state.players.length, 1);
+assert.equal(gm2.state.players[0].name, 'P1');
+let closedCode = null; p1.ws.on('close', (c) => { closedCode = c; });
+gm2.send({ type: 'leave' }); await wait();
+assert.equal(closedCode, 4002);
+
+for (const c of [gm, bad, late, again, gm2, p1, p2, ...ps]) { try { c.ws.close(); } catch {} }
 console.log('all checks passed'); server.close(); process.exit(0);
