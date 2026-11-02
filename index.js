@@ -22,6 +22,7 @@ const fails = new Map(); // ip -> {n, until}
 const limited = (ip) => { const f = fails.get(ip); return !!f && f.n >= 5 && Date.now() < f.until; };
 const noteFail = (ip) => { const f = fails.get(ip) || { n: 0, until: 0 }; f.n++; f.until = Date.now() + 10 * 60e3; fails.set(ip, f); };
 function keyOk(k) {
+  if (!HOST_KEY) return true;
   const a = Buffer.from(String(k || '')), b = Buffer.from(HOST_KEY);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
