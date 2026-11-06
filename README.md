@@ -14,10 +14,10 @@ Running both the frontend and backend locally provides instant hot-reloading wit
 ### 1. Start Local Backend (with Hot-Reload)
 ```bash
 npm install
-node --watch index.js
+npm run dev
 ```
 - Starts on `ws://localhost:8080`.
-- Automatically restarts on any change to `index.js` or `data.js`.
+- Nodemon automatically restarts on changes to the backend files.
 - Run smoke tests anytime: `npm test`.
 - Dev tips: Set `MIN_PLAYERS=2` to test games with fewer players.
 
@@ -39,7 +39,7 @@ Open **`http://localhost:3000`** in your browser.
 
 1. Sync files to the server:
    ```bash
-   scp Containerfile data.js index.js package.json package-lock.json mong@server:/home/mong/podman/werewolf/
+   scp -r Containerfile backend shared package.json package-lock.json mong@server:/home/mong/podman/werewolf/
    ```
 2. Build and run the container:
    ```bash
@@ -48,8 +48,9 @@ Open **`http://localhost:3000`** in your browser.
    podman build -t nighttable .
    podman run -d --name nighttable \
      -p 8088:8080 \
-     -e ALLOWED_ORIGIN='https://malterlo.github.io,http://localhost:8080,http://127.0.0.1:8080' \
-     -e HOST_KEY='<optional-passphrase>' \
+     -e ALLOWED_ORIGIN='https://malterlo.github.io,http://localhost:3000,http://127.0.0.1:3000' \
+     -e HOST_KEY='<required-passphrase>' \
+     -v nighttable-data:/data:U \
      --memory=256m \
      --restart unless-stopped \
      nighttable
@@ -72,10 +73,37 @@ git push
 ```
 The site updates automatically at [https://malterlo.github.io/werewolf/](https://malterlo.github.io/werewolf/).
 
+## Project layout
+
+```text
+frontend/
+  index.html          Static player and GM client
+backend/
+  server.js           Runtime entrypoint and WebSocket protocol
+  config.js           Environment configuration and limits
+  domain/game.js      Room state and game rules
+  services/           Room lifecycle services
+  persistence/        SQLite snapshots, events, and credentials
+  http/routes.js      Express routes
+shared/
+  roles.js            Role catalog and validation shared by the server
+```
+
+The root `index.html` is only a GitHub Pages redirect to `frontend/index.html`.
+The root JavaScript files are compatibility exports; new backend code belongs under `backend/`.
+
 ---
 
 ## 🎨 Art & Assets
 Optional role illustrations. Drop images into `art/<theme>/<role>.webp` (500x700).  
 Roles: `killer`, `townsfolk`, `inspector`, `protector`, `hunter`, `jester`. Emoji placeholders show until custom art exists.
 
-See `SPEC.md` for full game rules, permissions, and network protocol specs.
+## Documentation
+
+- [Documentation map](docs/README.md) — where to start for each kind of work.
+- [v1 game specification](docs/game-spec.md) — rules, permissions, UX, and
+  protocol baseline.
+- [Product requirements](docs/product-requirements.md) — product intent and v2
+  acceptance targets.
+- [OpenSpec v2 change](openspec/changes/night-table-v2/) — proposal, design,
+  capability specs, and the implementation task tracker.

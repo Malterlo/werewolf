@@ -1,4 +1,4 @@
-# Night Table: spec v1
+# Night Table: v1 game specification
 
 Hidden-role party game (Werewolf / Mafia). Played in person or on a video call, same app. Talking and voting happen out loud. Phones carry secrets and record results. Backend is self-hosted (Node, ws, rootless podman). Frontend is a static page on GitHub Pages.
 
@@ -50,10 +50,9 @@ Every kill and lynch needs a confirm dialog. Undo reverts the last 30 changes (k
 - Rooms expire after 2 h idle, 15 min if empty.
 - Wire protocol: client sends intent only (`{type, id}`), server replies with a full personalized snapshot.
 
-## Not built yet
+## V1 boundary and follow-up
 
-- SQLite snapshots so a restart keeps rooms.
-- Role art (drop `web/art/<theme>/<role>.webp`).
-- Khmer native review. Name profanity filter.
-- Extra roles (witch, cupid), public TV board.
-- Load test with N rooms.
+The v1 baseline does not define extra roles such as witch or cupid, a public TV
+board, or load testing. Persistence, role art, name filtering, and Khmer review
+are tracked as v2 work in
+[`openspec/changes/night-table-v2/`](../openspec/changes/night-table-v2/).

@@ -2,7 +2,10 @@
 import assert from 'node:assert/strict';
 import WebSocket from 'ws';
 process.env.PORT = '8099'; process.env.HOST_KEY = 'hunter2';
-const { server } = await import('./index.js');
+process.env.DB_PATH = ':memory:';
+const { db } = await import('./backend/persistence/database.js');
+const { server } = await import('./backend/server.js');
+const { restoreRooms } = await import('./backend/services/room-service.js');
 
 function client() {
   const ws = new WebSocket('ws://localhost:8099'); const c = { ws, state: null, msgs: [] };
@@ -13,9 +16,16 @@ function client() {
 }
 const wait = (ms = 80) => new Promise((r) => setTimeout(r, ms));
 
+const health = await fetch('http://localhost:8099/health');
+assert.equal(health.status, 200);
+assert.match(health.headers.get('x-request-id'), /^[0-9a-f-]{36}$/);
+assert.deepEqual(await health.json(), { ok: true });
+
 // passphrase gate
 const bad = client(); await bad.open; bad.send({ type: 'create', key: 'nope' }); await wait();
 assert.equal(bad.msgs.at(-1).badKey, true); assert.equal(bad.state, null);
+bad.send(null); await wait();
+assert.equal(bad.msgs.at(-1).msg, 'invalid message');
 
 const gm = client(); await gm.open; gm.send({ type: 'create', theme: 'mafia', key: 'hunter2' }); await wait();
 const code = gm.state.code;
@@ -27,6 +37,22 @@ ps[0].send({ type: 'deal' }); await wait();
 assert.equal(gm.state.phase, 'lobby');                       // players cannot deal
 gm.send({ type: 'deal' }); await wait();
 assert.equal(gm.state.phase, 'reveal');
+const columns = (table) => new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((column) => column.name));
+assert.deepEqual([...columns('games')].sort(), ['code', 'snapshot', 'updated_at', 'version']);
+assert.ok(columns('game_players').has('token_hash'));
+assert.ok(columns('events').has('seq'));
+assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'events_game_seq'").get());
+assert.equal(db.prepare('SELECT COUNT(*) AS count FROM game_players WHERE game_code = ? AND role IS NOT NULL').get(code).count, 0);
+const liveEvents = db.prepare('SELECT seq, type, payload FROM events WHERE game_code = ? ORDER BY seq').all(code);
+assert.ok(liveEvents.some((event) => event.type === 'deal'));
+assert.deepEqual(liveEvents.map((event) => event.seq), liveEvents.map((_, index) => index + 1));
+assert.ok(liveEvents.every((event) => !/(pick|token)/i.test(event.payload)));
+const dealEvent = JSON.parse(liveEvents.find((event) => event.type === 'deal').payload);
+assert.ok(dealEvent.role_counts.killer >= 1);
+assert.equal(dealEvent.player_id, undefined);
+const liveSnapshot = db.prepare('SELECT snapshot FROM games WHERE code = ?').get(code).snapshot;
+assert.ok(!liveSnapshot.includes('"token"'));
+assert.equal(db.prepare('SELECT COUNT(*) AS count FROM game_players WHERE game_code = ? AND role IS NOT NULL').get(code).count, 0);
 for (const p of ps) { assert.ok(p.state.me.role); assert.ok(p.state.players.every((x) => x.role === null)); }
 const late = client(); await late.open; late.send({ type: 'join', code, name: 'Late' }); await wait();
 assert.equal(late.msgs.at(-1).msg, 'game already started');   // join blocked after deal
@@ -58,10 +84,15 @@ assert.equal(pv.state.me.alive, false); assert.equal(pv.state.me.role, null);
 assert.ok(!JSON.stringify(ps[0].state.log).includes('"role"'));
 gm.send({ type: 'undo' }); await wait();
 assert.equal(gm.state.players.find((x) => x.id === victim.id).alive, true);
+const eventsAfterUndo = db.prepare('SELECT seq, type, payload FROM events WHERE game_code = ? ORDER BY seq').all(code);
+assert.equal(eventsAfterUndo.at(-1).type, 'undo');
+assert.equal(JSON.parse(eventsAfterUndo.at(-1).payload).compensates_change, true);
+assert.equal(eventsAfterUndo.filter((event) => event.type === 'kill').length, 1);
 gm.send({ type: 'kill', id: victim.id }); await wait();
 
 // end + sequenced reveal, killers last, winner only at the end
 gm.send({ type: 'end', winner: 'good' }); await wait();
+assert.equal(db.prepare('SELECT COUNT(*) AS count FROM game_players WHERE game_code = ? AND role IS NOT NULL').get(code).count, ps.length);
 assert.equal(ps[0].state.winner, null);
 const total = gm.state.reveal.total; const order = [];
 for (let i = 0; i < total; i++) {
@@ -76,6 +107,19 @@ assert.ok(lastKillerIdx >= 0);
 
 const again = client(); await again.open; again.send({ type: 'resume', code, token: ps[1].token }); await wait();
 assert.equal(again.state.me.id, ps[1].state.me.id);
+assert.equal(again.msgs.findLast((message) => message.type === 'joined').resynced, true);
+assert.equal(again.msgs.some((message) => message.type === 'resynced'), true);
+assert.equal(again.token, ps[1].token);
+
+const restoredRooms = new Map();
+restoreRooms(restoredRooms);
+const restored = restoredRooms.get(code);
+assert.ok(restored);
+assert.equal(restored.gmToken, null);
+assert.ok(restored.gmTokenHash);
+assert.equal(restored.gmWs, null);
+assert.equal(restored.sockets.size, 0);
+assert.ok([...restored.players.values()].every((p) => !p.token && p.tokenHash));
 
 // leave test
 const gm2 = client(); await gm2.open; gm2.send({ type: 'create', key: 'hunter2' }); await wait();
