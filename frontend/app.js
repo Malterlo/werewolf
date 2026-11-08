@@ -2,6 +2,7 @@
 const qs = new URLSearchParams(location.search);
 const WS_URL = qs.get('server') ||
   (['localhost', '127.0.0.1'].includes(location.hostname) ? 'ws://localhost:8080' : 'wss://homeserver.tailb85a94.ts.net');
+const HTTP_URL = qs.get('http') || WS_URL.replace(/^ws/, 'http').replace(/\/$/, '');
 const KEY = 'nighttable';
 const store = {
   get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
@@ -12,7 +13,10 @@ const store = {
 let lang = store.get('nt_lang') || ((navigator.language || '').startsWith('km') ? 'km' : 'en');
 const L = {
   en: {
-    name: 'Your name', code: 'Room code', join: 'Join game', host: 'Host a game', passphrase: 'Host passphrase',
+    name: 'Your name', code: 'Room code', join: 'Join game', host: 'Host a game',
+    admin: 'Admin sign in', advanced: 'Advanced options',
+    claim: 'Recover GM control', gmkey: 'GM recovery key', nickname: 'GM nickname', claimgm: 'Recover control',
+    makegm: 'Make GM', abort: 'Abort game', q_abort: 'Abort this game? Roles will not be saved.',
     create: 'Create room as host', enter: 'Enter your name and the 4-letter code', rejoin: 'Rejoining…', startover: 'Start over',
     room: 'Room', rules: 'Rules', gotit: 'Got it', waitdeal: 'Waiting for the host to deal cards.', inroom: 'In the room',
     players: 'Players', events: 'Events', you: 'you', out: 'out', offline: 'offline', none: 'Nothing has happened yet.',
@@ -43,7 +47,8 @@ const L = {
     g_good: 'Find and eliminate every killer.', g_neutral: 'Get yourself lynched by the group.',
   },
   km: {
-    name: 'ឈ្មោះរបស់អ្នក', code: 'លេខកូដបន្ទប់', join: 'ចូលហ្គេម', host: 'បង្កើតហ្គេម', passphrase: 'ពាក្យសម្ងាត់អ្នកដឹកនាំ',
+    name: 'ឈ្មោះរបស់អ្នក', code: 'លេខកូដបន្ទប់', join: 'ចូលហ្គេម', host: 'បង្កើតហ្គេម',
+    admin: 'ចូលជាអ្នកគ្រប់គ្រង', advanced: 'ជម្រើសកម្រិតខ្ពស់',
     create: 'បង្កើតបន្ទប់', enter: 'បញ្ចូលឈ្មោះ និងលេខកូដ ៤ តួអក្សរ', rejoin: 'កំពុងចូលឡើងវិញ…', startover: 'ចាប់ផ្តើមឡើងវិញ',
     room: 'បន្ទប់', rules: 'ច្បាប់', gotit: 'យល់ហើយ', waitdeal: 'កំពុងរង់ចាំអ្នកដឹកនាំចែកបៀ។', inroom: 'នៅក្នុងបន្ទប់',
     players: 'អ្នកលេង', events: 'ព្រឹត្តិការណ៍', you: 'អ្នក', out: 'ចេញ', offline: 'ក្រៅបណ្តាញ', none: 'មិនទាន់មានអ្វីកើតឡើងទេ។',
@@ -168,6 +173,7 @@ function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); el
 
 function onMsg(m) {
   if (m.type === 'joined') setSession({ code: m.code, token: m.token, role: m.role });
+  else if (m.type === 'gm_key') flash(`Save this GM recovery key: ${m.key}`);
   else if (m.type === 'error') {
     flash(m.msg); if (m.badKey) store.set('nt_key', null);
     if (m.fatal) { setSession(null); S = null; render(); }
@@ -230,9 +236,19 @@ function home() {
     <hr style="border:0;border-top:1px solid var(--line);width:100%">
     <div class="stack"><h3>${esc(t('host'))}</h3>
       <select id="theme" aria-label="Theme">${Object.entries(THEMES).map(([k, x]) => `<option value="${k}" ${k === pref ? 'selected' : ''}>${x.name}</option>`).join('')}</select>
-      <input id="hkey" type="password" placeholder="${esc(t('passphrase'))}" autocomplete="off" value="${esc(store.get('nt_key') || '')}">
       <button class="btn" data-act="create">${esc(t('create'))}</button>
-    </div></div>`;
+    </div>
+    <details class="advanced-options">
+      <summary>${esc(t('advanced'))}</summary>
+      <div class="stack">
+        <a class="btn admin-link" href="${esc(`${HTTP_URL}/auth/google`)}">${esc(t('admin'))}</a>
+        <h3>${esc(t('claim'))}</h3>
+        <input id="gcode" placeholder="${esc(t('code'))}" maxlength="4" autocapitalize="characters">
+        <input id="gkey" placeholder="${esc(t('gmkey'))}" autocomplete="off">
+        <input id="gnick" placeholder="${esc(t('nickname'))}" maxlength="16" autocomplete="off">
+        <button class="btn" data-act="claim">${esc(t('claimgm'))}</button>
+      </div>
+    </details></div>`;
 }
 
 function playerList() {
@@ -329,6 +345,7 @@ function gmView() {
       <select id="theme" aria-label="Theme">${Object.entries(THEMES).map(([k, x]) => `<option value="${k}" ${k === S.theme ? 'selected' : ''}>${x.name}</option>`).join('')}</select>
       <h3>${esc(t('players'))} (${n})</h3>
       ${n ? `<ul class="list">${S.players.map((p) => `<li><span class="grow">${esc(p.name)}</span>${p.online ? '' : `<span class="chip">${esc(t('offline'))}</span>`}
+        ${p.online ? `<button class="btn" style="min-height:44px" data-pass="${p.id}">${esc(t('makegm'))}</button>` : ''}
         <button class="btn" style="min-height:44px" data-kick="${p.id}">${esc(t('remove'))}</button></li>`).join('')}</ul>` : `<p class="dim">${esc(t('noone'))}</p>`}
       <h3>${esc(t('roles'))}</h3>${steppers}
       <p class="dim">${esc(t('fill', { n: Math.max(0, n - sum), r: rname('townsfolk') }))}</p></div>
@@ -364,7 +381,9 @@ function gmView() {
     <div class="grid">${tiles}</div>
     <details style="margin-top:6px"><summary class="dim">${esc(t('endgame'))}</summary><div class="stack" style="margin-top:10px">
       <button class="btn" data-end="good">${esc(t('w_good'))}</button><button class="btn" data-end="evil">${esc(t('w_evil', { r: k }))}</button>
-      <button class="btn" data-end="draw">${esc(t('w_draw'))}</button></div></details></div>${next}${sel ? sheet() : ''}`;
+      <button class="btn" data-end="draw">${esc(t('w_draw'))}</button>      </div></details>
+      ${S.phase === 'reveal' ? `<button class="btn danger" data-act="abort">${esc(t('abort'))}</button>` : ''}
+      </div>${next}${sel ? sheet() : ''}`;
 }
 
 function sheet() {
@@ -402,7 +421,7 @@ function ask(kind, id) {
 
 // ---------- events ----------
 document.addEventListener('click', (e) => {
-  const x = e.target.closest('[data-act],[data-tab],[data-role],[data-kick],[data-pick],[data-phase],[data-do],[data-end],[data-ask],[data-turn],[data-night],[data-sheetbg]');
+  const x = e.target.closest('[data-act],[data-tab],[data-role],[data-kick],[data-pass],[data-pick],[data-phase],[data-do],[data-end],[data-ask],[data-turn],[data-night],[data-sheetbg]');
   if (!x) return;
   const d = x.dataset;
   if (d.sheetbg !== undefined && e.target !== x) return; // clicks inside the sheet don't close it
@@ -414,6 +433,7 @@ document.addEventListener('click', (e) => {
   if (d.phase) return send({ type: 'set_phase', phase: d.phase });
   if (d.end) return send({ type: 'end', winner: d.end });
   if (d.kick) return send({ type: 'kick', id: d.kick });
+  if (d.pass) return send({ type: 'pass_gm', id: d.pass });
   if (d.ask) return ask(d.ask, d.id || sel);
   if (d.role) { const roles = { ...S.roles }; roles[d.role] = Math.max(0, (roles[d.role] || 0) + +d.d); return send({ type: 'config', roles }); }
   if (d.do) {
@@ -423,7 +443,18 @@ document.addEventListener('click', (e) => {
   switch (d.act) {
     case 'join': { const name = $('#jname').value.trim(), code = $('#jcode').value.trim().toUpperCase();
       if (!name || code.length !== 4) return flash(t('enter')); return send({ type: 'join', code, name }); }
-    case 'create': { const key = $('#hkey').value; store.set('nt_key', key); return send({ type: 'create', theme: pref, key }); }
+    case 'create': return send({ type: 'create', theme: pref });
+    case 'claim': {
+      const code = $('#gcode').value.trim().toUpperCase(), key = $('#gkey').value.trim(), nickname = $('#gnick').value.trim();
+      if (!code || !key || !nickname) return flash(t('enter'));
+      return send({ type: 'claim_gm', code, key, nickname });
+    }
+    case 'abort': {
+      $('#confirm').innerHTML = `<h3>${esc(t('q_abort'))}</h3>
+        <div class="row" style="margin-top:16px"><button class="btn grow" data-act="cancel">${esc(t('cancel'))}</button>
+        <button class="btn danger grow" data-act="doit">${esc(t('confirm'))}</button></div>`;
+      doIt = () => send({ type: 'abort' }); return $('#confirm').showModal();
+    }
     case 'forget': setSession(null); if (ws) ws.close(); S = null; return render();
     case 'leave': {
       $('#confirm').innerHTML = `<h3>${esc(t('q_leave'))}</h3>
@@ -481,4 +512,3 @@ document.addEventListener('visibilitychange', () => { const c = $('[data-card]')
 // ---------- boot ----------
 render();
 if (getSession()) connect();
-
