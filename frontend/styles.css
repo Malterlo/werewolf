@@ -114,6 +114,8 @@ input,select,.btn,.list li,.tile,.banner{
 .btn:active{transform:translateY(1px) scale(.985)}
 .btn.primary{background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 65%,#8d6a39));box-shadow:0 8px 24px color-mix(in srgb,var(--accent) 22%,transparent)}
 .btn.danger{background:linear-gradient(135deg,var(--evil),#702b31)}
+.admin-link{background:linear-gradient(135deg,#702b3b,#431b28);border-color:#8f4050;color:#f5dfe0;box-shadow:0 8px 24px #3d142466}
+.admin-link:hover{background:linear-gradient(135deg,#813347,#51202f)}
 .code{font-size:3.6rem;text-shadow:0 0 24px color-mix(in srgb,var(--accent) 35%,transparent)}
 .list li,.tile{border-radius:4px 12px 12px 4px}
 .list li::before{content:"";width:4px;height:4px;border:1px solid var(--accent);transform:rotate(45deg);opacity:.7}
