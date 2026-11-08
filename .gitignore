@@ -4,3 +4,6 @@ node_modules/
 nighttable.db
 nighttable.db-shm
 nighttable.db-wal
+.tunnel.json
+frontend/tunnel.json
+tunnel.json

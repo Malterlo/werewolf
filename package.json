@@ -6,7 +6,10 @@
   "scripts": {
     "start": "node backend/server.js",
     "dev": "nodemon backend/server.js",
+    "tunnel": "node scripts/tunnel.js",
+    "dev:tunnel": "node scripts/tunnel.js --dev",
     "test": "node test.js",
+    "test:tunnel": "node scripts/test-tunnel.js",
     "sim": "node sim.js"
   },
   "dependencies": {

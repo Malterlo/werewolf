@@ -81,14 +81,18 @@ function registerRoutes(app, { getRooms = () => [] } = {}) {
     res.setHeader('Set-Cookie', cookie(`${FLOW_COOKIE}=${encodeURIComponent(json({ state, nonce, verifier }))}`, {
       path: '/auth', sameSite: 'Lax', secure: GOOGLE_REDIRECT_URI.startsWith('https:'), maxAge: 600,
     }));
-    const discovery = await googleDiscovery();
-    const url = new URL(discovery.authorization_endpoint);
-    url.search = new URLSearchParams({
-      client_id: GOOGLE_CLIENT_ID, redirect_uri: GOOGLE_REDIRECT_URI, response_type: 'code',
-      scope: 'openid email profile', state, nonce, code_challenge: base64url(crypto.createHash('sha256').update(verifier).digest()),
-      code_challenge_method: 'S256',
-    });
-    return redirect(res, url.toString());
+    try {
+      const discovery = await googleDiscovery();
+      const url = new URL(discovery.authorization_endpoint);
+      url.search = new URLSearchParams({
+        client_id: GOOGLE_CLIENT_ID, redirect_uri: GOOGLE_REDIRECT_URI, response_type: 'code',
+        scope: 'openid email profile', state, nonce, code_challenge: base64url(crypto.createHash('sha256').update(verifier).digest()),
+        code_challenge_method: 'S256',
+      });
+      return redirect(res, url.toString());
+    } catch {
+      return res.status(503).send('Google sign-in is temporarily unavailable');
+    }
   });
   app.get('/auth/google/callback', async (req, res) => {
     const cookies = parseCookies(req.headers.cookie || '');

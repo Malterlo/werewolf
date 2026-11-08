@@ -31,6 +31,28 @@ Open **`http://localhost:3000`** in your browser.
 - `index.html` automatically detects `localhost` and connects to `ws://localhost:8080`.
 - **Testing Multi-player locally**: Open 1 normal browser window (as Host/GM) and 3–4 Incognito tabs (as Players) to simulate dealing, night turns, voting, and game flow.
 
+### 3. Expose Backend with Cloudflare Quick Tunnel (Public Testing)
+
+To test over the internet with real phones or remote players without configuring DNS, accounts, or port forwarding:
+
+```bash
+npm run tunnel
+```
+or with automatic backend reload on edits:
+```bash
+npm run dev:tunnel
+```
+
+The script automatically:
+1. Verifies/starts the local backend on port 8080.
+2. Creates an on-demand Cloudflare Quick Tunnel (`*.trycloudflare.com`).
+3. Supports both HTTPS and WSS with full CORS/origin validation.
+4. Outputs ready-to-use links:
+   - **Direct Web App**: `https://<subdomain>.trycloudflare.com` (backend serves the frontend directly over HTTPS/WSS)
+   - **GitHub Pages Link**: `https://malterlo.github.io/werewolf/?server=wss://<subdomain>.trycloudflare.com`
+   - **Local Frontend Link**: `http://localhost:3000/?server=wss://<subdomain>.trycloudflare.com`
+5. **One-Click Invite Sharing**: Hosts in the lobby can click **📋 Copy invite link** to share a link that automatically configures the room code and tunnel WSS server for joining players.
+
 ---
 
 ## 🚀 Production Hosting

@@ -1,4 +1,7 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
@@ -331,11 +334,42 @@ function handle(ws, m) {
 }
 
 // ---------- server ----------
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const frontendPath = path.resolve(__dirname, '../frontend');
+
 const app = express();
 const allowedOrigins = ALLOWED_ORIGIN
   ? ALLOWED_ORIGIN.split(',').map((s) => s.trim()).filter(Boolean)
   : true;
-app.use(cors({ origin: allowedOrigins }));
+
+const isOriginAllowed = (origin) => {
+  if (!ALLOWED_ORIGIN) return true;
+  if (!origin) return true;
+  const o = origin.toLowerCase();
+  try {
+    const parsed = new URL(o);
+    if (parsed.hostname.endsWith('.trycloudflare.com')) return true;
+  } catch {}
+  if (Array.isArray(allowedOrigins)) {
+    return allowedOrigins.some((allowed) => {
+      const a = allowed.toLowerCase();
+      if (a === o) return true;
+      try {
+        const allowedHost = new URL(a).host;
+        const oHost = new URL(o).host;
+        if (allowedHost === oHost) return true;
+        if (allowedHost.startsWith('*.') && oHost.endsWith(allowedHost.slice(1))) return true;
+      } catch {}
+      return false;
+    });
+  }
+  return true;
+};
+
+app.use(cors({
+  origin: (origin, callback) => callback(null, isOriginAllowed(origin)),
+  credentials: true,
+}));
 app.use((req, res, next) => {
   req.id = requestId();
   res.setHeader('x-request-id', req.id);
@@ -355,13 +389,15 @@ app.use(morgan((tokens, req, res) => [
   `request_id=${req.id}`,
 ].join(' ')));
 registerRoutes(app, { getRooms: () => rooms.values() });
+if (fs.existsSync(frontendPath)) {
+  app.use(express.static(frontendPath));
+  app.use('/frontend', express.static(frontendPath));
+}
 restoreRooms(rooms);
 const server = app.listen(PORT, () => log('info', `night table server on :${PORT}`));
 const wss = new WebSocketServer({
   server, maxPayload: 2048,
-  verifyClient: ({ origin }) => !ALLOWED_ORIGIN || allowedOrigins
-    .map((value) => value.toLowerCase())
-    .includes(String(origin || '').toLowerCase()),
+  verifyClient: ({ origin }) => isOriginAllowed(origin),
 });
 
 wss.on('connection', (ws, req) => {
@@ -403,7 +439,7 @@ process.once('SIGINT', () => { void shutdown('SIGINT'); });
 
 setInterval(() => {
   const now = Date.now();
-  for (const [ip, f] of fails) if (now > f.until) fails.delete(ip);
+  for (const [ip, f] of gmClaimIps) if (now > f.windowUntil) gmClaimIps.delete(ip);
   for (const [code, r] of rooms) {
     const empty = !r.gmWs && r.sockets.size === 0;
     if (now - r.last > 2 * 3600e3 || (empty && now - r.last > 15 * 60e3)) {
