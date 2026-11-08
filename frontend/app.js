@@ -1,13 +1,30 @@
 // ---------- config ----------
-const qs = new URLSearchParams(location.search);
-const WS_URL = qs.get('server') ||
-  (['localhost', '127.0.0.1'].includes(location.hostname) ? 'ws://localhost:8080' : 'wss://homeserver.tailb85a94.ts.net');
-const HTTP_URL = qs.get('http') || WS_URL.replace(/^ws/, 'http').replace(/\/$/, '');
-const KEY = 'nighttable';
 const store = {
   get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
   set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
 };
+const qs = new URLSearchParams(location.search);
+const paramServer = qs.get('server');
+if (paramServer) store.set('nt_server', paramServer);
+
+function resolveWsUrl() {
+  if (paramServer) return paramServer;
+  const saved = store.get('nt_server');
+  if (saved) return saved;
+  const host = location.host;
+  const isLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
+  if (location.hostname.endsWith('.trycloudflare.com')) {
+    return (location.protocol === 'https:' ? 'wss://' : 'ws://') + host;
+  }
+  if (isLocal) {
+    return 'ws://localhost:8080';
+  }
+  return 'wss://flame-experience-hits-elsewhere.trycloudflare.com';
+}
+
+const WS_URL = resolveWsUrl();
+const HTTP_URL = qs.get('http') || WS_URL.replace(/^ws/, 'http').replace(/\/$/, '');
+const KEY = 'nighttable';
 
 // ---------- i18n (Khmer strings are a first draft: have a native speaker review) ----------
 let lang = store.get('nt_lang') || ((navigator.language || '').startsWith('km') ? 'km' : 'en');
@@ -45,6 +62,8 @@ const L = {
     r_day: 'Day. The host announces who fell. Discuss, then vote out loud.', r_roles: 'Roles in this game',
     t_evil: 'Killers', t_good: 'Good side', t_neutral: 'Neutral', g_evil: 'Kill until the killers match or outnumber everyone else.',
     g_good: 'Find and eliminate every killer.', g_neutral: 'Get yourself lynched by the group.',
+    server_settings: 'Server connection', save: 'Save', reset: 'Reset', copy_invite: 'Copy invite link',
+    link_copied: 'Invite link copied!', enter_server: 'Enter a valid WebSocket URL',
   },
   km: {
     name: 'ឈ្មោះរបស់អ្នក', code: 'លេខកូដបន្ទប់', join: 'ចូលហ្គេម', host: 'បង្កើតហ្គេម',
@@ -77,6 +96,8 @@ const L = {
     r_day: 'ថ្ងៃ។ អ្នកដឹកនាំប្រកាសអ្នកដែលស្លាប់។ ពិភាក្សា រួចបោះឆ្នោតដោយសំឡេង។', r_roles: 'តួនាទីក្នុងហ្គេមនេះ',
     t_evil: 'ឃាតក', t_good: 'ភាគីល្អ', t_neutral: 'អព្យាក្រឹត', g_evil: 'សម្លាប់រហូតដល់ឃាតកស្មើ ឬច្រើនជាងអ្នកផ្សេង។',
     g_good: 'រក និងកម្ចាត់ឃាតកទាំងអស់។', g_neutral: 'ធ្វើឲ្យក្រុមប្រហារអ្នក។',
+    server_settings: 'ការតភ្ជាប់ម៉ាស៊ីនបម្រើ', save: 'រក្សាទុក', reset: 'កំណត់ឡើងវិញ', copy_invite: 'ចម្លងតំណអញ្ជើញ',
+    link_copied: 'បានចម្លងតំណអញ្ជើញ!', enter_server: 'សូមបញ្ចូល URL WebSocket ត្រឹមត្រូវ',
   },
 };
 const t = (k, v = {}) => String(L[lang][k] ?? L.en[k] ?? k).replace(/\{(\w+)\}/g, (_, x) => v[x] ?? '');
@@ -230,7 +251,7 @@ function home() {
     <div><h1>Night Table</h1><p class="dim">${esc(tx(THEMES[pref].tag))}</p></div>
     <div class="stack">
       <input id="jname" placeholder="${esc(t('name'))}" maxlength="16" autocomplete="off">
-      <input id="jcode" placeholder="${esc(t('code'))}" maxlength="4" autocapitalize="characters" autocomplete="off">
+      <input id="jcode" placeholder="${esc(t('code'))}" value="${esc(qs.get('code') || '')}" maxlength="4" autocapitalize="characters" autocomplete="off">
       <button class="btn primary" data-act="join">${esc(t('join'))}</button>
     </div>
     <hr style="border:0;border-top:1px solid var(--line);width:100%">
@@ -242,6 +263,12 @@ function home() {
       <summary>${esc(t('advanced'))}</summary>
       <div class="stack">
         <a class="btn admin-link" href="${esc(`${HTTP_URL}/auth/google`)}">${esc(t('admin'))}</a>
+        <h3>${esc(t('server_settings'))}</h3>
+        <input id="srv-url" placeholder="wss://... or ws://..." value="${esc(WS_URL)}" autocomplete="off">
+        <div class="row" style="gap:8px">
+          <button class="btn grow" data-act="set_server">${esc(t('save'))}</button>
+          <button class="btn danger grow" data-act="reset_server">${esc(t('reset'))}</button>
+        </div>
         <h3>${esc(t('claim'))}</h3>
         <input id="gcode" placeholder="${esc(t('code'))}" maxlength="4" autocapitalize="characters">
         <input id="gkey" placeholder="${esc(t('gmkey'))}" autocomplete="off">
@@ -342,6 +369,9 @@ function gmView() {
     const steppers = S.catalog.filter((r) => r !== 'townsfolk').map((r) => `<div class="step"><span class="grow">${remoji(r)} ${esc(rname(r))}</span>
       <button class="btn" data-role="${r}" data-d="-1" aria-label="-">−</button><b>${S.roles[r] || 0}</b><button class="btn" data-role="${r}" data-d="1" aria-label="+">+</button></div>`).join('');
     return `<div class="stack">${head}<p class="dim">${esc(t('sharecode'))}</p>
+      <div class="row" style="gap:8px">
+        <button class="btn primary grow" data-act="share_link">📋 ${esc(t('copy_invite'))}</button>
+      </div>
       <select id="theme" aria-label="Theme">${Object.entries(THEMES).map(([k, x]) => `<option value="${k}" ${k === S.theme ? 'selected' : ''}>${x.name}</option>`).join('')}</select>
       <h3>${esc(t('players'))} (${n})</h3>
       ${n ? `<ul class="list">${S.players.map((p) => `<li><span class="grow">${esc(p.name)}</span>${p.online ? '' : `<span class="chip">${esc(t('offline'))}</span>`}
@@ -471,6 +501,36 @@ document.addEventListener('click', (e) => {
       return $('#confirm').showModal();
     }
     case 'lang': lang = lang === 'en' ? 'km' : 'en'; store.set('nt_lang', lang); return render();
+    case 'set_server': {
+      const val = ($('#srv-url')?.value || '').trim();
+      if (!val) return flash(t('enter_server'));
+      store.set('nt_server', val);
+      const u = new URL(location.href);
+      u.searchParams.set('server', val);
+      location.href = u.toString();
+      return;
+    }
+    case 'reset_server': {
+      store.set('nt_server', null);
+      const u = new URL(location.href);
+      u.searchParams.delete('server');
+      location.href = u.toString();
+      return;
+    }
+    case 'share_link': {
+      const inviteUrl = new URL(location.href);
+      inviteUrl.searchParams.set('code', S.code);
+      if (WS_URL) inviteUrl.searchParams.set('server', WS_URL);
+      const urlStr = inviteUrl.toString();
+      if (navigator.share) {
+        navigator.share({ title: `Night Table - Room ${S.code}`, text: `Join Night Table room ${S.code}`, url: urlStr }).catch(() => {});
+      } else if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(urlStr).then(() => flash(t('link_copied')));
+      } else {
+        flash(urlStr);
+      }
+      return;
+    }
     case 'snd': snd = !snd; store.set('nt_snd', snd ? '1' : '0'); if (snd) audio(); return render();
     case 'deal': return send({ type: 'deal' });
     case 'undo': return send({ type: 'undo' });
