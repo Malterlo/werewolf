@@ -19,7 +19,7 @@ function resolveWsUrl() {
   if (isLocal) {
     return 'ws://localhost:8080';
   }
-  return 'wss://baking-building-hand-represent.trycloudflare.com';
+  return 'wss://working-pool-cities-rna.trycloudflare.com';
 }
 
 const WS_URL = resolveWsUrl();
