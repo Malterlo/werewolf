@@ -81,11 +81,11 @@ Problems v1 leaves open (addressed in v2):
 
 | Persona | Description | Needs |
 | --- | --- | --- |
-| **GM (host)** | Runs the game, knows all roles, sits on a phone the whole session. Knows the server passphrase. | Fast setup, clear night checklist, safe undo, never leaking state on a shared screen. |
+| **GM (host)** | Runs the game, knows all roles, sits on a phone the whole session. Holds the GM recovery key when needed. | Fast setup, clear night checklist, safe undo, never leaking state on a shared screen. |
 | **Player** | Joins with a code and a name on any phone. Often new to the game. | Zero-friction join, a card that is easy to peek at and hard to expose, clear instructions for their night action. |
 | **Dead player** | Eliminated but still in the room. | A clear out screen that leaks nothing until the reveal. |
 | **Operator** | The developer running the server. | Visibility into rooms, load, abuse, and history. Safe controls. |
-| **Self-hoster** | Someone cloning the repo to run their own instance. | Works without OAuth or a database setup beyond a volume; `HOST_KEY` remains a fallback. |
+| **Self-hoster** | Someone cloning the repo to run their own instance. | Works without OAuth or a database setup beyond a volume. |
 
 ## 5. Scope and releases
 
@@ -126,7 +126,7 @@ Themes (Werewolf, Mafia) change names, descriptions, icons and colors in the bro
 
 | ID | Requirement | Status |
 | --- | --- | --- |
-| FR-LOB-1 | Creating a room requires the server passphrase when `HOST_KEY` is set. Creator becomes the GM and enters a nickname, stored with the game. | Built |
+| FR-LOB-1 | Creating a room is open; the creator becomes the GM and receives a one-time GM recovery key. | Built |
 | FR-LOB-2 | Room code is 4 characters, generated with Node crypto, unique among live rooms. | Built |
 | FR-LOB-3 | Players join with code plus name. Joining is blocked once cards are dealt. | Built |
 | FR-LOB-4 | Names are trimmed, control characters stripped, maximum 16 characters. Duplicates rejected. | Built |
@@ -240,7 +240,7 @@ The in-app rules sheet is generated from the roles actually in play and shown in
 
 ### 7.6 Error and empty states
 
-- Every rejected action (bad code, duplicate name, full room, dealt room, rate limit, wrong passphrase) shows a specific, translated message.
+- Every rejected action (bad code, duplicate name, full room, dealt room, rate limit, invalid GM recovery key) shows a specific, translated message.
 - Lost connection shows a reconnecting banner and retries with backoff. Token reuse restores the seat.
 - Restored-after-restart rooms show a brief resynced notice.
 
@@ -303,7 +303,7 @@ Intent names marked existing come from the v1 spec. Others are illustrative and 
 
 | Intent | Sender | Purpose | Status |
 | --- | --- | --- | --- |
-| `create` | Host | Create room (with passphrase if required) | Built |
+| `create` | Host | Create room and receive GM recovery credentials | Built |
 | `join` | Player | Join with code and name | Built |
 | `rejoin` | Any | Resume seat with token | Built |
 | `ack` | Player | Confirm card seen | Built |
@@ -339,7 +339,7 @@ Intent names marked existing come from the v1 spec. Others are illustrative and 
 
 ### 9.5 Error codes
 
-`bad_code`, `room_full`, `room_dealt`, `name_taken`, `name_invalid`, `bad_passphrase`, `locked_out`, `rate_limited`, `not_gm`, `not_your_turn`, `invalid_setup`, `too_few_players`, `server_busy`, `payload_too_large`. GM key claims add bad\_gm\_key and gm\_claim\_locked. Every code has an English and Khmer string.
+`bad_code`, `room_full`, `room_dealt`, `name_taken`, `name_invalid`, `locked_out`, `rate_limited`, `not_gm`, `not_your_turn`, `invalid_setup`, `too_few_players`, `server_busy`, `payload_too_large`. GM key claims add bad\_gm\_key and gm\_claim\_locked. Every code has an English and Khmer string.
 
 ## 10. Data model (SQLite)
 
@@ -356,7 +356,7 @@ All timestamps are UTC ISO strings or epoch milliseconds, stated per column. Mig
 | `events` | `game_id` fk, `seq`, `at`, `type`, `data_json` | Primary key `(game_id, seq)`. Append only |
 | `room_snapshots` | `code` pk, `version`, `state_json`, `updated_at` | One row per live room, deleted on end or expiry |
 | `tokens` | `token_hash` pk, `code`, `seat`, `kind` (gm or player), `created_at` | Hashed reconnect tokens |
-| `security_events` | `id` pk, `at`, `type`, `ip`, `detail_json` | Failed passphrase, lockout, bad origin, oversize, rate limit, auth failure |
+| `security_events` | `id` pk, `at`, `type`, `ip`, `detail_json` | Failed recovery claim, lockout, bad origin, oversize, rate limit, auth failure |
 | `audit_log` | `id` pk, `at`, `user_id`, `action`, `target`, `ip`, `detail_json` | Every admin mutation |
 | `config` | `key` pk, `value_json`, `updated_by`, `updated_at` | Runtime overrides |
 | gm\_keys | code pk, key\_hash, issued\_at, failed\_count, locked\_until | One row per live room; hash replaced on every successful claim; deleted with the room |
@@ -429,7 +429,7 @@ On SIGTERM the server stops accepting new connections, flushes pending writes, s
 | --- | --- | --- |
 | Role assignments, live picks | Secret | Seat owner for own role, GM for all, killer teammates for killer picks |
 | Reconnect tokens, GM keys, session cookies | Credential | Holder only; stored hashed |
-| `HOST_KEY`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET` | Credential | Environment only, never logged or returned |
+| GM recovery keys, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET` | Credential | Environment or room credential only; never logged or returned |
 | Room metadata (phase, counts, names, age) | Internal | Admin |
 | Finished game roles and events | Historical | Admin |
 | Player names | Low sensitivity | Room members, admin |
@@ -441,7 +441,7 @@ On SIGTERM the server stops accepting new connections, flushes pending writes, s
 | Player reads another's role via crafted message | Server-side `viewFor`, permission checks per intent, tests |
 | Player spoofs GM actions | GM-only intents checked against GM token |
 | Admin endpoint leaks roles | `adminViewFor`, finished-only history, automated leak test across all admin routes |
-| Brute force of `HOST_KEY` | Constant-time compare, 5 failures lock the IP for 10 minutes, security event logged |
+| Brute force of GM recovery keys | Hashed comparison, room and IP lockouts, security event logged |
 | Brute force or abuse of `/auth/*` | Rate limit per IP, Google handles credentials |
 | Any Google user gains admin | `ADMIN_EMAILS` allowlist or `users.role`, 403 otherwise |
 | Session theft | HTTP-only, Secure, SameSite=Strict cookie, hashed IDs, 8 hour expiry, logout kills session |
@@ -477,7 +477,7 @@ Give the operator visibility and safe control of the running service without she
 | --- | --- | --- |
 | Live rooms | Code, phase, theme, players (names), connected count, round, age, last activity | `adminViewFor` over the room Map |
 | Server health | Uptime, memory, room and socket counts, messages per second, rate-limit hits, error count, DB write latency | `metrics.js` |
-| Security log | Failed passphrases, lockouts, bad origins, oversize payloads, auth failures; filter by type and time | `security_events` |
+| Security log | Failed recovery claims, lockouts, bad origins, oversize payloads, auth failures; filter by type and time | `security_events` |
 | Locks | Currently locked IPs with expiry and unlock action | In-memory lock map |
 | Game history | Paged finished games with winner, length, players, theme | `games` |
 | Game detail and replay | Role reveal, timeline of events | `game_players`, `events` |
@@ -497,7 +497,7 @@ Base path `/admin/api`. Everything except login routes requires an authorized se
 | Security | `GET /security/events`, `GET /security/locks`, `DELETE /security/locks/:ip`, `POST /security/blocks` (optional) |
 | History | `GET /games`, `GET /games/:id`, `GET /games/:id/events` (finished games only) |
 | Stats | `GET /stats/overview`, `GET /stats/winrate`, `GET /stats/activity`, `GET /stats/roles` |
-| Config | `GET /config`, `PATCH /config`, `POST /config/rotate-host-key` |
+| Config | `GET /config`, `PATCH /config` |
 | Audit | `GET /audit` |
 
 ### 13.4 Response rules
@@ -505,7 +505,6 @@ Base path `/admin/api`. Everything except login routes requires an authorized se
 - Live room detail contains: code, theme, phase, round, player names with alive and connected flags, role counts as configured, event count. It contains no per-player role, no picks, no tokens.
 - A game id for a game still in progress returns 404 from history routes.
 - `GET /config` never returns secret values; it returns whether each secret is set.
-- `rotate-host-key` returns the new key once, in the response body only, and logs that a rotation happened without the value. It affects new room creation only. It does not persist across restarts unless the operator also updates the environment; the response says so.
 - Closing a room sends connected clients a `closed` message first, then removes the room, snapshot and tokens, and writes an audit row.
 
 ### 13.5 Dashboard UX
@@ -519,7 +518,7 @@ Base path `/admin/api`. Everything except login routes requires an authorized se
 
 ### 14.1 Scope
 
-Admin sign-in only in v2. Players stay anonymous. `HOST_KEY` remains the gate for room creation. Host accounts are cut from this PRD.
+Admin sign-in only in v2. Players stay anonymous. Room creation is open; GM recovery credentials protect control transfer. Host accounts are cut from this PRD.
 
 Why OAuth for one admin: the author chose it to learn OIDC and to avoid a shared admin secret. A single `ADMIN_KEY` would be faster and is an acceptable fallback; the writeup states this tradeoff plainly.
 
@@ -638,7 +637,6 @@ podman run -d --name nighttable \
   -v nighttable-data:/data:U \
   -e DB_PATH=/data/nighttable.db \
   -e ALLOWED_ORIGIN='https://malterlo.github.io' \
-  -e HOST_KEY='<passphrase>' \
   -e GOOGLE_CLIENT_ID='<id>' -e GOOGLE_CLIENT_SECRET='<secret>' \
   -e OAUTH_REDIRECT_URI='https://homeserver.tailb85a94.ts.net/auth/google/callback' \
   -e ADMIN_EMAILS='<operator email>' -e SESSION_SECRET='<random>' \
@@ -664,7 +662,7 @@ Pushing to `main` deploys GitHub Pages. The client reads the backend URL from th
 
 | Layer | What | Tool |
 | --- | --- | --- |
-| Smoke | Existing WebSocket suite: health, passphrase, errors, join, deal, secrecy, night permissions, hidden deaths, undo, reveal, reconnect, departure | `npm test` (port 8099) |
+| Smoke | Existing WebSocket suite: health, errors, join, deal, secrecy, night permissions, hidden deaths, undo, reveal, reconnect, departure | `npm test` (port 8099) |
 | Rules unit tests | Deal validation, majority logic, win check, undo, role interactions | Node test runner |
 | Persistence | Restart mid-game, restore, rejoin, event sequence gaps, snapshot version skip | Scripted |
 | Security | Leak test over admin routes, permission matrix per actor, lockout, origin rejection, OAuth callback with bad state, non-allowlisted user | Scripted |
@@ -718,7 +716,7 @@ Decided since the first draft: solo project; SQLite; admin served from the backe
 | Variable | Default | Purpose | Status |
 | --- | --- | --- | --- |
 | `PORT` | 8080 | HTTP and WebSocket port | Built |
-| `HOST_KEY` | empty | Passphrase to create rooms | Built |
+| `SIM_KEY` | empty | Optional key for simulator room creation | Built |
 | `ALLOWED_ORIGIN` | empty | Origin allowlist, comma separated | Built |
 | `MIN_PLAYERS` | 4 | Minimum players to deal | Built |
 | `NODE_ENV` | unset | Log format | Built |
@@ -745,4 +743,4 @@ Decided since the first draft: solo project; SQLite; admin served from the backe
    product and frontend documentation.
 2. The canonical local frontend origin is `http://localhost:3000`.
 3. The code role ID `killer` is displayed as Werewolf or Mafioso by theme.
-4. `HOST_KEY` may be empty for local development but is required for production.
+4. Simulator rooms require `SIM_KEY` in production; ordinary room creation does not require a shared secret.

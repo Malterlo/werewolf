@@ -29,7 +29,7 @@ The system SHALL authorize admin API access only for users whose verified email 
 - **THEN** the API returns 403 and records the authorization failure as a security event
 
 ### Requirement: Protect admin sessions
-Admin sessions SHALL use hashed random identifiers and secure HTTP-only SameSite=Strict cookies, expire after eight hours absolute or 30 minutes idle, and be revoked server-side on logout.
+Admin sessions SHALL use hashed random identifiers and secure HTTP-only SameSite=Lax cookies, expire after eight hours absolute or 30 minutes idle, and be revoked server-side on logout. Lax is required because the session is established by a cross-site top-level OAuth callback.
 
 #### Scenario: Session expires or is revoked
 - **WHEN** an operator logs out or the session exceeds either lifetime
@@ -63,11 +63,11 @@ For the v2.2 Should scope, authorized operators SHALL be able to view and update
 - **WHEN** an authorized operator requests runtime configuration
 - **THEN** non-secret settings are shown and secret values are masked as set or unset
 
-### Requirement: Rotate the host key safely
-Host-key rotation SHALL return the new value only in the successful response, SHALL never log it, and SHALL affect new room creation only.
+### Requirement: Rotate GM recovery keys safely
+GM recovery-key rotation SHALL return the new value only in the successful response, SHALL never log it, and SHALL affect future recovery claims only.
 
-#### Scenario: Operator rotates the host key
-- **WHEN** an authorized operator confirms host-key rotation
+#### Scenario: Operator rotates a GM recovery key
+- **WHEN** an authorized operator confirms GM recovery-key rotation
 - **THEN** the new key is returned once, existing rooms remain unaffected, and the audit record contains no key value
 
 ### Requirement: Audit admin mutations

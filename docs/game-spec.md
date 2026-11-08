@@ -10,7 +10,7 @@ Hidden-role party game (Werewolf / Mafia). Played in person or on a video call, 
 | **Player** | `join`, `ack` (seen my card), `night_target` (only own night role, only while that turn is open, only if alive) | Other players' roles, other roles' picks |
 | **Wolf** | Same as player, plus sees living teammates and their picks live | Non-wolf picks |
 | **Dead player** | Nothing. Sees a "you are out" screen | Roles until the end-of-game reveal |
-| **Host (room creator)** | Must know the server passphrase (`HOST_KEY`) | n/a |
+| **Host (room creator)** | Creates the room and receives a hashed GM recovery key | n/a |
 
 - Joining needs room code + name. Joining is blocked once cards are dealt.
 - Duplicate names rejected. Names trimmed, control characters stripped, 16 chars max.
@@ -46,7 +46,7 @@ Every kill and lynch needs a confirm dialog. Undo reverts the last 30 changes (k
 ## Server
 
 - Rooms in memory, `Map` keyed by code. One process. Caps: 50 rooms, 20 players, 2 KB messages, 20 msgs / 5 s per socket.
-- Origin allowlist (`ALLOWED_ORIGIN`). Passphrase (`HOST_KEY`) compared in constant time. 5 wrong tries locks that IP for 10 min.
+- Origin allowlist (`ALLOWED_ORIGIN`). GM recovery keys are hashed, rotated, and rate-limited.
 - Rooms expire after 2 h idle, 15 min if empty.
 - Wire protocol: client sends intent only (`{type, id}`), server replies with a full personalized snapshot.
 

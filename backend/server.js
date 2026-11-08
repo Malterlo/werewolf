@@ -5,9 +5,12 @@ import morgan from 'morgan';
 import { WebSocketServer } from 'ws';
 import { defaultRoles, validateRoles } from '../shared/roles.js';
 import { log, requestId } from './logger.js';
-import { hashToken, metrics, removeRoom, saveRoom } from './persistence/database.js';
 import {
-  ALLOWED_ORIGIN, HOST_KEY, MAX_PLAYERS, MIN_PLAYERS, PORT, THEMES, token,
+  archiveFinishedRoom, hashToken, metrics, removeRoom, saveRoom,
+  recordSecurityEvent,
+} from './persistence/database.js';
+import {
+  ALLOWED_ORIGIN, GM_WORDS, MAX_PLAYERS, MIN_PLAYERS, PORT, SIM_KEY, THEMES, token,
 } from './config.js';
 import {
   ROLES, buildRevealOrder, deal, freshNight, killPlayer, pushHistory, undo,
@@ -17,23 +20,30 @@ import { viewFor } from './http/views.js';
 import { createRoom, restoreRooms } from './services/room-service.js';
 
 const rooms = new Map();
-
-// ---------- host passphrase + brute-force limit ----------
-const fails = new Map(); // ip -> {n, until}
-const limited = (ip) => { const f = fails.get(ip); return !!f && f.n >= 5 && Date.now() < f.until; };
-const noteFail = (ip) => { const f = fails.get(ip) || { n: 0, until: 0 }; f.n++; f.until = Date.now() + 10 * 60e3; fails.set(ip, f); };
-function keyOk(k) {
-  if (!HOST_KEY) return true;
-  const a = Buffer.from(String(k || '')), b = Buffer.from(HOST_KEY);
+const gmClaimIps = new Map();
+const gmKey = () => `${GM_WORDS[crypto.randomInt(GM_WORDS.length)]}-${GM_WORDS[crypto.randomInt(GM_WORDS.length)]}`;
+const sameHash = (left, right) => {
+  const a = Buffer.from(left || ''), b = Buffer.from(right || '');
   return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
+};
+const newGmKey = (r) => {
+  const key = gmKey();
+  r.gmKeyHash = hashToken(key);
+  r.gmClaimFailures = 0;
+  r.gmClaimLockedUntil = 0;
+  return key;
+};
 
 // ---------- rooms ----------
 // ---------- views (the only thing that leaves the server) ----------
 const send = (ws, o) => { if (ws.readyState === 1) ws.send(JSON.stringify(o)); };
 function broadcast(r, event = 'snapshot', details = {}) {
   try {
-    saveRoom(r, event, details);
+    if (!r.archived) saveRoom(r, event, details);
+    if (!r.archived && r.phase === 'over' && r.revealCount >= r.revealOrder.length) {
+      archiveFinishedRoom(r);
+      r.archived = true;
+    }
   } catch (error) {
     log('error', 'room persistence failed', {
       code: r.code, event, error: error.message, persistence_failures: metrics().persistenceFailures,
@@ -45,7 +55,7 @@ function broadcast(r, event = 'snapshot', details = {}) {
 
 // ---------- message handling ----------
 const GM_ONLY = new Set(['config', 'deal', 'set_phase', 'open_turn', 'close_turn', 'kill', 'lynch', 'revive',
-  'reassign', 'kick', 'end', 'reveal_next', 'reveal_all', 'undo', 'hunter_done']);
+  'reassign', 'kick', 'end', 'reveal_next', 'reveal_all', 'undo', 'hunter_done', 'abort', 'pass_gm']);
 
 function attach(ws, r, who, resumed = false) {
   ws.ctx = { r, who }; r.last = Date.now();
@@ -62,6 +72,42 @@ function attach(ws, r, who, resumed = false) {
   broadcast(r);
 }
 
+function claimGm(ws, m) {
+  const r = rooms.get(String(m.code || '').toUpperCase());
+  if (!r) return send(ws, { type: 'error', msg: 'room gone', fatal: true });
+  const now = Date.now();
+  const ip = ws.ip || 'unknown';
+  const ipFailure = gmClaimIps.get(ip);
+  if (ipFailure && now < ipFailure.until) {
+    recordSecurityEvent('gm_claim_locked_ip', { code: r.code });
+    return send(ws, { type: 'error', msg: 'claims locked, try again later' });
+  }
+  if (now < r.gmClaimLockedUntil) {
+    recordSecurityEvent('gm_claim_locked_room', { code: r.code });
+    return send(ws, { type: 'error', msg: 'claims locked, try again later' });
+  }
+  if (!sameHash(hashToken(String(m.key || '')), r.gmKeyHash)) {
+    r.gmClaimFailures++;
+    const windowUntil = ipFailure && now < ipFailure.windowUntil ? ipFailure.windowUntil : now + 5 * 60e3;
+    const failures = ipFailure && now < ipFailure.windowUntil ? ipFailure.failures + 1 : 1;
+    gmClaimIps.set(ip, {
+      failures, windowUntil, until: failures >= 3 ? windowUntil : 0,
+    });
+    if (r.gmClaimFailures >= 3) r.gmClaimLockedUntil = windowUntil;
+    recordSecurityEvent('gm_claim_failed', { code: r.code });
+    return send(ws, { type: 'error', msg: 'bad GM key' });
+  }
+  const nickname = String(m.nickname || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 16);
+  if (!nickname) return send(ws, { type: 'error', msg: 'enter a nickname' });
+  r.gmWs?.close(4003, 'GM control transferred');
+  r.gmToken = token();
+  const rotatedKey = newGmKey(r);
+  r.gmName = nickname;
+  attach(ws, r, { role: 'gm', token: r.gmToken }, true);
+  send(ws, { type: 'gm_key', key: rotatedKey });
+  broadcast(r, 'gm_claimed', { nickname });
+}
+
 function handle(ws, m) {
   const err = (msg, extra) => send(ws, { type: 'error', msg, ...extra });
   if (!m || typeof m !== 'object' || Array.isArray(m) || typeof m.type !== 'string') {
@@ -69,14 +115,18 @@ function handle(ws, m) {
   }
   if (m.type === 'create') {
     if (ws.ctx) return;
-    if (HOST_KEY) {
-      if (limited(ws.ip)) return err('too many tries, wait 10 minutes');
-      if (!keyOk(m.key)) { noteFail(ws.ip); return err('wrong passphrase', { badKey: true }); }
-      fails.delete(ws.ip);
+    const simulated = m.sim_key != null;
+    if (simulated && (!SIM_KEY || !sameHash(hashToken(String(m.sim_key)), hashToken(SIM_KEY)))) {
+      return err('invalid simulator key');
     }
-    const r = createRoom(rooms, m.theme);
-    return r ? attach(ws, r, { role: 'gm' }) : err('server full');
+    const r = createRoom(rooms, m.theme, simulated ? 'sim' : 'live');
+    if (!r) return err('server full');
+    const key = newGmKey(r);
+    attach(ws, r, { role: 'gm' });
+    send(ws, { type: 'gm_key', key });
+    return;
   }
+  if (m.type === 'claim_gm') return claimGm(ws, m);
   if (m.type === 'join') {
     if (ws.ctx) return;
     const r = rooms.get(String(m.code || '').toUpperCase());
@@ -215,6 +265,46 @@ function handle(ws, m) {
       break;
     }
     case 'hunter_done': r.hunterPending = false; break;
+    case 'abort': {
+      if (!r.dealt || r.phase === 'over') return fail('nothing to abort');
+      archiveFinishedRoom(r, 'aborted', { includePlayers: false, cleanupLive: false });
+      for (const player of r.players.values()) {
+        player.role = null; player.alive = true; player.seen = false;
+        player.cause = null; player.diedAt = 0; player.deathRound = undefined;
+      }
+      r.dealt = false; r.phase = 'lobby'; r.round = 0; r.winner = null;
+      r.jesterWin = false; r.hunterPending = false; r.roles = null;
+      r.night = freshNight(); r.revealOrder = []; r.revealCount = 0; r.history = [];
+      break;
+    }
+    case 'pass_gm': {
+      if (!['lobby', 'over'].includes(r.phase) || !target || !r.sockets.has(target.id)) {
+        return fail('invalid GM pass');
+      }
+      const oldGm = r.gmWs;
+      const oldName = r.gmName || 'GM';
+      const newGmWs = r.sockets.get(target.id);
+      const former = {
+        id: crypto.randomBytes(4).toString('hex'), name: oldName, token: token(),
+        tokenHash: null, role: null, alive: true, seen: false, cause: null, diedAt: 0,
+      };
+      former.tokenHash = hashToken(former.token);
+      r.players.delete(target.id); r.sockets.delete(target.id);
+      r.players.set(former.id, former);
+      r.gmToken = token(); r.gmName = target.name;
+      newGmWs.ctx = { r, who: { role: 'gm', token: r.gmToken } };
+      r.gmWs = newGmWs;
+      if (oldGm) {
+        oldGm.ctx = { r, who: { role: 'player', id: former.id, token: former.token } };
+        r.sockets.set(former.id, oldGm);
+        send(oldGm, {
+          type: 'joined', code: r.code, token: former.token, role: 'player', resynced: true,
+        });
+      }
+      send(newGmWs, { type: 'joined', code: r.code, token: r.gmToken, role: 'gm', resynced: true });
+      send(newGmWs, { type: 'gm_key', key: newGmKey(r) });
+      break;
+    }
     case 'end': {
       if (!r.dealt || r.phase === 'over') return fail('nothing to end');
       pushHistory(r);
@@ -249,6 +339,12 @@ app.use(cors({ origin: allowedOrigins }));
 app.use((req, res, next) => {
   req.id = requestId();
   res.setHeader('x-request-id', req.id);
+  res.setHeader('x-content-type-options', 'nosniff');
+  res.setHeader('x-frame-options', 'DENY');
+  res.setHeader('referrer-policy', 'no-referrer');
+  if (req.path.startsWith('/admin') || req.path.startsWith('/history')) {
+    res.setHeader('cache-control', 'no-store');
+  }
   next();
 });
 app.use(morgan((tokens, req, res) => [
@@ -258,7 +354,7 @@ app.use(morgan((tokens, req, res) => [
   `${tokens['response-time'](req, res)} ms`,
   `request_id=${req.id}`,
 ].join(' ')));
-registerRoutes(app);
+registerRoutes(app, { getRooms: () => rooms.values() });
 restoreRooms(rooms);
 const server = app.listen(PORT, () => log('info', `night table server on :${PORT}`));
 const wss = new WebSocketServer({

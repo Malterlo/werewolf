@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node backend/server.js",
     "dev": "nodemon backend/server.js",
-    "test": "node test.js"
+    "test": "node test.js",
+    "sim": "node sim.js"
   },
   "dependencies": {
     "cors": "^2.8.6",

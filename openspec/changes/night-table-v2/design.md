@@ -53,13 +53,13 @@ The backend serves `/admin`, `/auth/*`, and `/admin/api/*`. The game client can 
 
 Google OIDC uses state, nonce, PKCE, exact redirect URI validation, and a short-lived flow cookie. Successful identity is then checked separately against the email allowlist or stored admin role. Sessions use random IDs stored only as hashes, secure HTTP-only cookies, strict SameSite policy after callback, idle and absolute expiry, and server-side logout revocation.
 
-Admin mutations require JSON and a custom mutation header, use POST/PATCH/DELETE, and append audit rows. GET routes do not mutate state. Runtime configuration reports secret presence rather than values; host-key rotation returns the new value once without logging it and affects new rooms only.
+Admin mutations require JSON and a custom mutation header, use POST/PATCH/DELETE, and append audit rows. GET routes do not mutate state. Runtime configuration reports secret presence rather than values.
 
 ### 4. Use hashed, rotating GM recovery keys with atomic claims
 
 A room receives a two-word, hyphen-joined key from a curated non-homophone list. Only its hash is persisted. Claim validation and key rotation occur as one database-protected operation so concurrent valid claims have one winner. The successful claimant enters a nickname; the old GM becomes an observer and the prior key is invalidated.
 
-Room-level failed claims lock all claims for five minutes after three wrong keys, independent of IP. A separate per-IP limiter reuses the existing host-passphrase policy: five failed attempts trigger a ten-minute lockout. This keeps brute-force protection consistent without inventing a second threshold. Every failed attempt becomes a security event. Lobby `pass_gm` is a distinct direct swap because no roles have been dealt; in-progress `gm_claim` preserves phase, picks, and undo state.
+Room-level failed GM-key claims lock all claims for five minutes after three wrong keys, independent of IP. A separate per-IP limiter applies the same five-minute claim window. Every failed attempt becomes a security event. Lobby `pass_gm` is a distinct direct swap because no roles have been dealt; in-progress `gm_claim` preserves phase, picks, and undo state.
 
 ### 5. Create finished-game records only at the end
 

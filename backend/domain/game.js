@@ -3,9 +3,10 @@ import { ROLES, defaultRoles, validateRoles } from '../../shared/roles.js';
 
 const freshNight = () => ({ open: null, picks: {}, closed: {} });
 
-function createRoom(code, theme, gmToken) {
+function createRoom(code, theme, gmToken, source = 'live') {
   return {
-    code, gmToken, theme: theme || 'werewolf',
+    code, gmToken, source, gmKeyHash: null, gmClaimFailures: 0, gmClaimLockedUntil: 0, theme: theme || 'werewolf',
+    startedAt: Date.now(),
     phase: 'lobby', round: 0, winner: null, jesterWin: false, hunterPending: false,
     roles: null, dealt: false, night: freshNight(), revealOrder: [], revealCount: 0,
     players: new Map(), sockets: new Map(), gmWs: null,
@@ -90,7 +91,7 @@ function deal(r, minPlayers) {
 
 function killPlayer(r, p, cause) {
   if (!p.alive) return;
-  p.alive = false; p.cause = cause; p.diedAt = Date.now();
+  p.alive = false; p.cause = cause; p.diedAt = Date.now(); p.deathRound = r.round;
   if (p.role === 'hunter') r.hunterPending = true;
   if (cause === 'lynch' && p.role === 'jester') r.jesterWin = true;
   r.log.push({ t: Date.now(), type: 'death', id: p.id, name: p.name, cause, round: r.round });

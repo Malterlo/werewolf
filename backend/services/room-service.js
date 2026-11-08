@@ -2,11 +2,11 @@ import { THEMES, MAX_ROOMS, MIN_PLAYERS, newCode, token } from '../config.js';
 import { createRoom as makeRoom, restoreRoom } from '../domain/game.js';
 import { loadRooms, removeRoom, saveRoom } from '../persistence/database.js';
 
-function createRoom(rooms, theme) {
+function createRoom(rooms, theme, source = 'live') {
   if (rooms.size >= MAX_ROOMS) return null;
   let code;
   do code = newCode(); while (rooms.has(code));
-  const room = makeRoom(code, THEMES.has(theme) ? theme : 'werewolf', token());
+  const room = makeRoom(code, THEMES.has(theme) ? theme : 'werewolf', token(), source);
   rooms.set(code, room);
   saveRoom(room, 'create');
   return room;

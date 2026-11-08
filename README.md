@@ -49,7 +49,6 @@ Open **`http://localhost:3000`** in your browser.
    podman run -d --name nighttable \
      -p 8088:8080 \
      -e ALLOWED_ORIGIN='https://malterlo.github.io,http://localhost:3000,http://127.0.0.1:3000' \
-     -e HOST_KEY='<required-passphrase>' \
      -v nighttable-data:/data:U \
      --memory=256m \
      --restart unless-stopped \
@@ -91,6 +90,62 @@ shared/
 
 The root `index.html` is only a GitHub Pages redirect to `frontend/index.html`.
 The root JavaScript files are compatibility exports; new backend code belongs under `backend/`.
+
+Completed games are copied to the `finished_games`, `finished_players`, and
+`finished_events` tables after the final reveal. Their live snapshot and live
+event rows are then removed, while the in-memory room remains available to
+connected clients until they leave.
+
+Authorized operators can inspect finished games at `GET /admin/api/history` and
+`GET /history/:code`, view aggregate results at `GET /history/analytics`, and
+purge a record with `DELETE /history/:code`. These routes require the Google
+operator session and never expose live room snapshots.
+
+GM recovery keys are shown once when a room is created and are stored only as
+hashes. A disconnected GM can recover control with `claim_gm`; the current key
+rotates after a successful claim. In the lobby, the current GM can pass control
+to an online player, and a dealt game can be aborted without storing roles in
+finished history.
+
+Production deployments should set `ALLOWED_ORIGIN` to an explicit value. Put
+the SQLite database on the persistent volume, stop the
+old container with `SIGTERM` before replacing it, and keep the previous image
+available for rollback. The server flushes each accepted intent before
+broadcasting and gives graceful shutdown up to 9 seconds to close clients.
+
+Set `SIM_KEY` only when running the simulator. Requests that include a
+simulator key are rejected unless it matches `SIM_KEY`, and accepted rooms are
+stored with `source = sim`; ordinary rooms remain `source = live`.
+
+Google operator sign-in uses these environment variables:
+
+```bash
+GOOGLE_CLIENT_ID='...apps.googleusercontent.com'
+GOOGLE_CLIENT_SECRET='...'
+GOOGLE_REDIRECT_URI='https://your-host.example/auth/google/callback'
+SESSION_SECRET='random-unused-for-logs'
+ADMIN_EMAILS='you@example.com'
+```
+
+In Google Cloud Console, create an OAuth client of type **Web application**,
+enable the Google Identity/OAuth APIs, add the exact redirect URI above (and
+`http://localhost:8080/auth/google/callback` for local work), configure the
+consent screen with `openid`, `email`, and `profile`, and add your account as a
+test user if the app remains in Testing mode. Start sign-in at
+`/auth/google`; the callback validates state, nonce, PKCE, issuer, audience,
+expiry, and verified email before creating an eight-hour admin session.
+
+The game homepage includes an **Admin sign in** button. If the frontend uses a
+non-default backend, pass both URLs in the query string, for example:
+`?server=wss://example.test&http=https://example.test`.
+
+With a running server, execute a protocol-level simulation with:
+
+```bash
+SIM_KEY='<simulator-key>' \
+  npm run sim -- --server ws://localhost:8080 --games 10 --players 4-8 \
+  --parallel 2 --seed 7 --pace 10
+```
 
 ---
 
