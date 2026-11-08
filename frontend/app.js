@@ -19,7 +19,7 @@ function resolveWsUrl() {
   if (isLocal) {
     return 'ws://localhost:8080';
   }
-  return 'wss://portsmouth-row-longest-promo.trycloudflare.com';
+  return 'wss://hierarchy-using-gis-dsl.trycloudflare.com';
 }
 
 const WS_URL = resolveWsUrl();
