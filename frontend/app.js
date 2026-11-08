@@ -565,7 +565,7 @@ function hide(card) {
   setTimeout(() => { const f = card.querySelector('.face'); if (f && !holding) f.innerHTML = ''; if (pending) { pending = false; render(); } }, 300);
 }
 document.addEventListener('pointerdown', (e) => { const c = e.target.closest('[data-card]'); if (c && S && S.me && S.me.role) { e.preventDefault(); reveal(c); } });
-['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => document.addEventListener(ev, () => { const c = $('[data-card]'); if (c) hide(c); }, true));
+['pointerup', 'pointercancel'].forEach((ev) => document.addEventListener(ev, () => { const c = $('[data-card]'); if (c) hide(c); }, true));
 document.addEventListener('contextmenu', (e) => { if (e.target.closest('[data-card]')) e.preventDefault(); });
 document.addEventListener('visibilitychange', () => { const c = $('[data-card]'); if (document.hidden && c) hide(c); });
 

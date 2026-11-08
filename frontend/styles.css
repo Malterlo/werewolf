@@ -34,7 +34,7 @@ input:focus-visible,button:focus-visible,select:focus-visible{outline:2px solid 
 /* the card */
 .stage{display:grid;place-items:center;padding:18px 0 8px}
 .card{position:relative;width:min(68vw,264px);aspect-ratio:5/7;perspective:900px;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;cursor:pointer}
-.card .inner{position:absolute;inset:0;transition:transform .28s cubic-bezier(.3,.7,.2,1);transform-style:preserve-3d}
+.card .inner{position:absolute;inset:0;transition:transform .28s cubic-bezier(.3,.7,.2,1);transform-style:preserve-3d;pointer-events:none}
 .card.up .inner{transform:rotateY(180deg)}
 .face,.back{position:absolute;inset:0;border-radius:18px;backface-visibility:hidden;-webkit-backface-visibility:hidden;overflow:hidden}
 .back{display:grid;place-items:center;border:2px solid var(--accent);
